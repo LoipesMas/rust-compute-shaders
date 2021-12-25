@@ -17,7 +17,7 @@ layout(shared, binding = 1) readonly buffer InputData
     CellData input_data[];
 };
 
-// layout(binding = 2) uniform sampler2D u_texture; // Previous state it's texture we can sample from
+layout(binding = 2, rgba32f) uniform image2D u_texture; 
 int GetArrayId(ivec2 pos)
 {
     return pos.x + pos.y * int(u_field_size.x);
@@ -29,8 +29,11 @@ void main() {
 
     CellData curr = input_data[GetArrayId(pixel_coord)];
 
+	CellData new_cell;
+	new_cell.val = pixel_coord.x/u_field_size.x;
+	next[GetArrayId(pixel_coord)] = new_cell;
 
-    CellData new_cell;
-    new_cell.val = curr.val * 2.0;
-    next[GetArrayId(pixel_coord)] = new_cell;
+
+    //imageStore(u_texture, pixel_coord, vec4(pixel_coord.x, pixel_coord.y, 1.0, 1.0));
+    //imageStore(u_texture, ivec2(10, 10), vec4(pixel_coord.x, pixel_coord.y, 1.0, 1.0));
 }
