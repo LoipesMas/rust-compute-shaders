@@ -5,10 +5,13 @@ use glutin::event_loop::ControlFlow;
 
 use rand::prelude::*;
 
+use std::fs;
+
 #[derive(Default, Clone, Copy, Debug)]
 struct CellData {
     position: [f32; 2],
     velocity: [f32; 2],
+    group: [i32; 2],
 }
 
 pub fn main() {
@@ -27,7 +30,7 @@ pub fn main() {
 
         let s = 1024;
         let field_size = (s, s);
-        let count = 100;
+        let count = 1536;
 
         let speed = 0.6;
 
@@ -37,6 +40,7 @@ pub fn main() {
             c.position[0] = random::<f32>();
             c.position[1] = random::<f32>();
             let angle = (random::<f32>() - 0.5) * 2.0 * std::f32::consts::PI;
+            c.group[0] = (random::<f32>() * 4.0) as i32;
             c.velocity[0] = angle.cos() * speed;
             c.velocity[1] = angle.sin() * speed;
             c
@@ -54,27 +58,28 @@ pub fn main() {
             image_data_u8,
             glow::DYNAMIC_COPY,
         );
+
         gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, None);
 
         let mut image_data_2 = vec![];
         image_data_2.resize(count, CellData::default());
 
         let image_data_u8_2: &[u8] = core::slice::from_raw_parts(
-            image_data_2.as_ptr() as *const u8,
-            image_data_2.len() * core::mem::size_of::<CellData>(),
+            image_data.as_ptr() as *const u8,
+            image_data.len() * core::mem::size_of::<CellData>(),
         );
 
         let mut out_data = gl.create_buffer().unwrap();
         gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(out_data));
         gl.buffer_data_u8_slice(
             glow::SHADER_STORAGE_BUFFER,
-            image_data_u8_2,
+            image_data_u8,
             glow::DYNAMIC_COPY,
         );
         gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, None);
 
         let compute_program = gl.create_program().expect("Cannot create program");
-        let shader_source = include_str!("shader.comp");
+        let shader_source = &fs::read_to_string("src/shader.comp").unwrap()[..];
         let shader = gl.create_shader(glow::COMPUTE_SHADER).unwrap();
         gl.shader_source(shader, shader_source);
         gl.compile_shader(shader);
@@ -113,6 +118,7 @@ pub fn main() {
             struct CellData{
                 vec2 position;
                 vec2 velocity;
+                ivec2 group;
             };
 
 
@@ -133,9 +139,11 @@ pub fn main() {
                 for (int i = 0; i < u_count; i++){
                     CellData boid = data[i];
                     vec2 dir = v-boid.position;
-                    if (length(dir) < 0.01){
+                    if (length(dir) < 0.005){
                         dir = normalize(dir);
-                        color = vec4(dot(dir,normalize(boid.velocity)),0.4,0.5,1.0);
+                        color = vec4(dot(dir,normalize(boid.velocity)), float(boid.group.x) / 4.0, 0.5,1.0);
+                        if (i == 0)
+                            color = vec4(0.6,0.6,0.9,1.0);
                         return;
                     }
                 }
@@ -198,6 +206,8 @@ pub fn main() {
                     gl.clear(glow::COLOR_BUFFER_BIT);
                     // DRAWING AND COMPUTING
                     {
+                        gl.viewport(-640, -940, 1920, 1920);
+                        gl.memory_barrier(glow::SHADER_STORAGE_BARRIER_BIT);
                         gl.use_program(Some(compute_program));
                         gl.uniform_1_i32(count_loc.as_ref(), count as i32);
                         gl.uniform_1_f32(dt_loc.as_ref(), dt);
@@ -205,7 +215,7 @@ pub fn main() {
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(out_data));
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 1, Some(in_data));
 
-                        gl.dispatch_compute(count as u32, 1, 1);
+                        gl.dispatch_compute(count as u32 / 32, 1, 1);
                         std::mem::swap(&mut out_data, &mut in_data);
                         gl.memory_barrier(glow::SHADER_STORAGE_BARRIER_BIT);
 
@@ -226,7 +236,7 @@ pub fn main() {
                                 glow::MAP_READ_BIT,
                             ) as *mut CellData;
                             let slice = { std::slice::from_raw_parts(p, count) };
-                            println!("s {:?}", slice[0]);
+                            println!("s {:?}", &slice[..3]);
                             gl.unmap_buffer(glow::SHADER_STORAGE_BUFFER);
                         }
                     }

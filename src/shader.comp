@@ -1,9 +1,10 @@
 #version 440 
-layout(local_size_x = 1) in;
+layout(local_size_x = 32) in;
 
 struct CellData{
     vec2 position;
     vec2 velocity;
+	ivec2 group;
 };
 
 uniform int u_count;
@@ -28,48 +29,62 @@ float angle(vec2 a, vec2 b){
 	return atan(cross(a,b), dot(a,b));
 }
 
+float vision = 0.09;
+float close_range = 0.03;
+
 void main() {
 
     CellData curr = input_data[gl_GlobalInvocationID.x];
     
 
-    CellData new_cell;
-    new_cell = curr;
+    CellData self;
+	self.velocity = curr.velocity;
+	self.position = curr.position;
+	self.group = curr.group;
 
-	float rotation = atan(new_cell.velocity.y, new_cell.velocity.x);
-	vec2 norm_vel = normalize(new_cell.velocity);
+	float rotation = atan(self.velocity.y, self.velocity.x);
+	vec2 norm_vel = normalize(self.velocity);
 
-	float speed = length(new_cell.velocity);
+	float speed = 0.4;
 
 	for (int i = 0; i < u_count; i++){
 		if (gl_GlobalInvocationID.x == i)
 			continue;
 
-		CellData boid = input_data[i];
-		vec2 dir = boid.position-new_cell.position;
+		CellData other = input_data[i];
+		vec2 dir = other.position-self.position;
 
 		float dist = length(dir);
-		if (dist > 0.1)
+		if (dist > vision)
 			continue;
 		
 		float dir_rot = atan(dir.y, dir.x);
 		float rot_diff = angle(norm_vel, normalize(dir));
 		//rot_diff = clamp(rot_diff, -1.0, 1.0);
-		if (dist < 0.03) {
-			rot_diff *= -20.0 * (1.0 + (0.03-dist)/0.03);
-			//if (dist < 0.02)
-			//	new_cell.position -= normalize(dir) * (0.02 - dist);
+		if (self.group != other.group) {
+			if (dist < close_range * 2.0)
+				rot_diff *= -30.0 * (2.0-(dist/close_range));
+			else
+				rot_diff *= 0;
+		}
+		else {
+			if (dist < close_range) {
+				rot_diff *= -20.0 * (2.0-(dist/close_range));
+				//if (dist < 0.02)
+				//	self.position -= normalize(dir) * (0.02 - dist);
+			}
+			rotation = mix(rotation, atan(other.velocity.y, other.velocity.x), u_dt);
 		}
 		rotation += rot_diff * 0.1 * u_dt;
-		rotation = mix(rotation, atan(boid.velocity.y, boid.velocity.x), u_dt);
-		new_cell.velocity = vec2(cos(rotation)*speed, sin(rotation)*speed);
-		norm_vel = normalize(new_cell.velocity);
+		//self.velocity = vec2(cos(rotation)*speed, sin(rotation)*speed);
+		//norm_vel = normalize(self.velocity);
 	}
+	self.velocity = vec2(cos(rotation)*speed, sin(rotation)*speed);
 
 
 
-    new_cell.position += new_cell.velocity * u_dt;
-	new_cell.position = fract(new_cell.position);
+    self.position += self.velocity * u_dt;
+	self.position = fract(self.position);
 
-    next[gl_GlobalInvocationID.x] = new_cell;
+    next[gl_GlobalInvocationID.x] = self;
 }
