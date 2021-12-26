@@ -59,14 +59,6 @@ pub fn main() {
 
         gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, None);
 
-        let mut image_data_2 = vec![];
-        image_data_2.resize(count, CellData::default());
-
-        let image_data_u8_2: &[u8] = core::slice::from_raw_parts(
-            image_data.as_ptr() as *const u8,
-            image_data.len() * core::mem::size_of::<CellData>(),
-        );
-
         let mut out_data = gl.create_buffer().unwrap();
         gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(out_data));
         gl.buffer_data_u8_slice(
@@ -121,7 +113,6 @@ pub fn main() {
 
 
             uniform int u_count;
-            uniform float u_zoom;
 
             layout(shared, binding = 0) readonly buffer Data
             {
@@ -183,12 +174,10 @@ pub fn main() {
         let dt_loc = gl.get_uniform_location(compute_program, "u_dt");
         let time_loc = gl.get_uniform_location(compute_program, "u_time");
         let count_tex_loc = gl.get_uniform_location(tex_program, "u_count");
-        let zoom_loc = gl.get_uniform_location(tex_program, "u_zoom");
 
         let mut t1 = std::time::Instant::now();
         gl.clear_color(0.95, 0.75, 0.75, 1.0);
         let mut t = 0.0;
-        let mut zoom = 2.0;
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Wait;
             match event {
@@ -217,11 +206,11 @@ pub fn main() {
 
                         gl.use_program(Some(tex_program));
                         gl.uniform_1_i32(count_tex_loc.as_ref(), count as i32);
-                        gl.uniform_1_f32(zoom_loc.as_ref(), zoom);
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(in_data));
                         gl.bind_vertex_array(Some(vertex_array));
                         gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
                     }
+                    // for debugging
                     if false {
                         gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(in_data));
                         {
@@ -244,18 +233,10 @@ pub fn main() {
                     }
                     WindowEvent::CloseRequested => {
                         gl.delete_program(compute_program);
+                        gl.delete_program(tex_program);
                         gl.delete_buffer(in_data);
                         gl.delete_buffer(out_data);
                         *control_flow = ControlFlow::Exit
-                    }
-                    WindowEvent::KeyboardInput { input, .. } => {
-                        if let Some(keycode) = input.virtual_keycode {
-                            if keycode == glutin::event::VirtualKeyCode::I {
-                                zoom = 20.0f32.min(zoom * 1.1);
-                            } else if keycode == glutin::event::VirtualKeyCode::O {
-                                zoom = 1.5f32.max(zoom * 0.9);
-                            }
-                        }
                     }
                     _ => (),
                 },
