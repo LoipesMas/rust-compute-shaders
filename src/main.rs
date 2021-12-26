@@ -72,7 +72,7 @@ pub fn main() {
         gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, None);
 
         let compute_program = gl.create_program().expect("Cannot create program");
-        let shader_source = include_str!("shader.vsh");
+        let shader_source = &std::fs::read_to_string("src/shader.comp").unwrap()[..];
         let shader = gl.create_shader(glow::COMPUTE_SHADER).unwrap();
         gl.shader_source(shader, shader_source);
         gl.compile_shader(shader);
