@@ -9,8 +9,6 @@ use rand::prelude::*;
 struct CellData {
     alive: u32,
     lifetime: f32,
-    #[allow(dead_code)]
-    creation: f32,
 }
 
 pub fn main() {
@@ -33,7 +31,7 @@ pub fn main() {
         let mut image_data = vec![];
         image_data.resize_with(field_size.0 * field_size.1, || {
             let mut c = CellData::default();
-            if random::<f32>() < 0.231 {
+            if random::<f32>() < 0.1 {
                 c.alive = 1;
                 c.lifetime = 1.0;
             }
@@ -122,10 +120,10 @@ pub fn main() {
         let (vertex_shader_source, fragment_shader_source) = (
             r#"#version 440
             const vec2 verts[4] = vec2[4](
-                vec2(0.0f, 2.0f),
-                vec2(2.0f, 2.0f),
+                vec2(0.0f, 1.0f),
+                vec2(1.0f, 1.0f),
                 vec2(0.0f, 0.0f),
-                vec2(2.0f, 0.0f)
+                vec2(1.0f, 0.0f)
             );
             out vec2 vert;
             void main() {
@@ -136,7 +134,6 @@ pub fn main() {
             struct CellData{
                 bool alive;
                 float lifetime;
-                float creation;
             };
 
 
@@ -169,7 +166,7 @@ pub fn main() {
                 if (lt > 0.5) {
                     color = vec4(mix(vec3(0.8,0.6,lt), vec3(0.3,0.8,0.6), (lt-0.5)*2.0), 1.0);
                 } else {
-                    color = vec4(mix(vec3(0.2,0.1,0.7), vec3(0.8,0.6,0.7), lt*2.0), 1.0);
+                    color = vec4(vec3(0.2,0.1,0.7), 1.0);
                 }
             }"#,
         );
@@ -208,14 +205,12 @@ pub fn main() {
         gl.use_program(Some(compute_program));
         let field_size_loc = gl.get_uniform_location(compute_program, "u_field_size");
         let dt_loc = gl.get_uniform_location(compute_program, "u_dt");
-        let time_loc = gl.get_uniform_location(compute_program, "u_time");
         let field_size_tex_loc = gl.get_uniform_location(tex_program, "u_field_size");
         let zoom_loc = gl.get_uniform_location(tex_program, "u_zoom");
 
         let mut t1 = std::time::Instant::now();
         gl.clear_color(0.95, 0.75, 0.75, 1.0);
-        let mut t = 0.0;
-        let mut zoom = 2.0;
+        let mut zoom = 1.0;
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Wait;
             match event {
@@ -224,8 +219,8 @@ pub fn main() {
                 }
                 Event::RedrawRequested(_) => {
                     let dt = t1.elapsed().as_secs_f32();
-                    t += dt;
                     t1 = std::time::Instant::now();
+                    gl.viewport(-240, -440, 1920, 1920);
                     gl.clear(glow::COLOR_BUFFER_BIT);
                     // DRAWING AND COMPUTING
                     {
@@ -236,7 +231,6 @@ pub fn main() {
                             field_size.1 as f32,
                         );
                         gl.uniform_1_f32(dt_loc.as_ref(), dt);
-                        gl.uniform_1_f32(time_loc.as_ref(), t);
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(out_data));
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 1, Some(in_data));
                         gl.bind_texture(glow::TEXTURE_2D, Some(tex));
@@ -274,7 +268,7 @@ pub fn main() {
                             if keycode == glutin::event::VirtualKeyCode::I {
                                 zoom = 20.0f32.min(zoom * 1.1);
                             } else if keycode == glutin::event::VirtualKeyCode::O {
-                                zoom = 1.5f32.max(zoom * 0.9);
+                                zoom = 1.0f32.max(zoom * 0.9);
                             }
                         }
                     }
