@@ -28,9 +28,7 @@ pub fn main() {
             .unwrap();
         let gl = glow::Context::from_loader_function(|s| window.get_proc_address(s) as *const _);
 
-        let s = 1024;
-        let field_size = (s, s);
-        let count = 1536;
+        let count = 1024;
 
         let speed = 0.6;
 
@@ -40,9 +38,9 @@ pub fn main() {
             c.position[0] = random::<f32>();
             c.position[1] = random::<f32>();
             let angle = (random::<f32>() - 0.5) * 2.0 * std::f32::consts::PI;
-            c.group[0] = (random::<f32>() * 4.0) as i32;
             c.velocity[0] = angle.cos() * speed;
             c.velocity[1] = angle.sin() * speed;
+            c.group[0] = (random::<f32>() * 3.0) as i32;
             c
         });
 
@@ -141,9 +139,7 @@ pub fn main() {
                     vec2 dir = v-boid.position;
                     if (length(dir) < 0.005){
                         dir = normalize(dir);
-                        color = vec4(dot(dir,normalize(boid.velocity)), float(boid.group.x) / 4.0, 0.5,1.0);
-                        if (i == 0)
-                            color = vec4(0.6,0.6,0.9,1.0);
+                        color = vec4(dot(dir,normalize(boid.velocity)), float(boid.group.x) / 3.0, 0.5,1.0);
                         return;
                     }
                 }

@@ -11,6 +11,9 @@ uniform int u_count;
 uniform float u_dt;
 uniform float u_time;
 
+const float PI = 3.1415926535897932384626433832795;
+const float TAU = 2.0*PI;
+
 layout(shared, binding = 0) writeonly buffer OutputData
 {
     CellData next[];
@@ -21,16 +24,14 @@ layout(shared, binding = 1) readonly buffer InputData
     CellData input_data[];
 };
 
-float cross(vec2 a, vec2 b) {
-	return a.x * b.y - a.y * b.x;
-}
 
-float angle(vec2 a, vec2 b){
-	return atan(cross(a,b), dot(a,b));
+float angle_diff(float a, float b){
+	float diff = mod(b-a, TAU);
+	return mod(2.0*diff, TAU) - diff;
 }
 
 float vision = 0.09;
-float close_range = 0.03;
+float close_range = 0.02;
 
 void main() {
 
@@ -59,8 +60,9 @@ void main() {
 			continue;
 		
 		float dir_rot = atan(dir.y, dir.x);
-		float rot_diff = angle(norm_vel, normalize(dir));
-		//rot_diff = clamp(rot_diff, -1.0, 1.0);
+		float rot_diff = angle_diff(rotation, dir_rot);
+		if (abs(rot_diff) > PI )
+			continue;
 		if (self.group != other.group) {
 			if (dist < close_range * 2.0)
 				rot_diff *= -30.0 * (2.0-(dist/close_range));
@@ -70,14 +72,12 @@ void main() {
 		else {
 			if (dist < close_range) {
 				rot_diff *= -20.0 * (2.0-(dist/close_range));
-				//if (dist < 0.02)
-				//	self.position -= normalize(dir) * (0.02 - dist);
+				if (dist < 0.02)
+					self.position -= normalize(dir) * (0.02 - dist) * u_dt;
 			}
 			rotation = mix(rotation, atan(other.velocity.y, other.velocity.x), u_dt);
 		}
 		rotation += rot_diff * 0.1 * u_dt;
-		//self.velocity = vec2(cos(rotation)*speed, sin(rotation)*speed);
-		//norm_vel = normalize(self.velocity);
 	}
 	self.velocity = vec2(cos(rotation)*speed, sin(rotation)*speed);
 
