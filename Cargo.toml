@@ -1,5 +1,5 @@
 [package]
-name = "wavy-test"
+name = "compute-shaders"
 version = "0.1.0"
 edition = "2021"
 

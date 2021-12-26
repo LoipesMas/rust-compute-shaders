@@ -3,9 +3,14 @@ use glow::*;
 use glutin::event::{Event, WindowEvent};
 use glutin::event_loop::ControlFlow;
 
+use rand::prelude::*;
+
 #[derive(Default, Clone, Copy, Debug)]
 struct CellData {
-    val: f32,
+    alive: u32,
+    lifetime: f32,
+    #[allow(dead_code)]
+    creation: f32,
 }
 
 pub fn main() {
@@ -22,14 +27,16 @@ pub fn main() {
             .unwrap();
         let gl = glow::Context::from_loader_function(|s| window.get_proc_address(s) as *const _);
 
-        let field_size = (16, 16);
+        let s = 1024;
+        let field_size = (s, s);
 
         let mut image_data = vec![];
-        let mut x = 0.0;
         image_data.resize_with(field_size.0 * field_size.1, || {
             let mut c = CellData::default();
-            x += 1.0;
-            c.val = x;
+            if random::<f32>() < 0.231 {
+                c.alive = 1;
+                c.lifetime = 1.0;
+            }
             c
         });
 
@@ -46,20 +53,6 @@ pub fn main() {
             glow::DYNAMIC_COPY,
         );
         gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, None);
-
-        gl.memory_barrier(glow::SHADER_STORAGE_BARRIER_BIT);
-        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(in_data));
-        {
-            let p = gl.map_buffer_range(
-                glow::SHADER_STORAGE_BUFFER,
-                0,
-                std::mem::size_of::<CellData>() as i32 * 3,
-                glow::MAP_READ_BIT,
-            ) as *mut CellData;
-            let slice = { std::slice::from_raw_parts(p, 3) };
-            println!("s1 {:?}", slice);
-            gl.unmap_buffer(glow::SHADER_STORAGE_BUFFER);
-        }
 
         let mut image_data_2 = vec![];
         image_data_2.resize(field_size.0 * field_size.1, CellData::default());
@@ -99,7 +92,6 @@ pub fn main() {
         gl.bind_texture(glow::TEXTURE_2D, Some(tex));
         let data_ = vec![255u8; field_size.0 * field_size.1 * 4];
         let slice = { std::slice::from_raw_parts::<u8>(data_.as_ptr(), data_.len()) };
-        println!("S: {}", slice.len());
         gl.tex_storage_2d(
             glow::TEXTURE_2D,
             1,
@@ -118,18 +110,6 @@ pub fn main() {
             glow::UNSIGNED_BYTE,
             PixelUnpackData::Slice(slice),
         );
-        //gl.tex_image_2d(
-        //    glow::TEXTURE_2D,
-        //    0,
-        //    glow::RGBA8 as i32,
-        //    field_size.0 as i32,
-        //    field_size.1 as i32,
-        //    0,
-        //    glow::RGBA8,
-        //    glow::UNSIGNED_BYTE,
-        //    Some(slice),
-        //);
-        println!("ee2 {:?}", gl.get_error());
         gl.bind_texture(glow::TEXTURE_2D, None);
 
         let vertex_array = gl
@@ -142,23 +122,26 @@ pub fn main() {
         let (vertex_shader_source, fragment_shader_source) = (
             r#"#version 440
             const vec2 verts[4] = vec2[4](
-                vec2(0.0f, 1.0f),
-                vec2(1.0f, 1.0f),
+                vec2(0.0f, 2.0f),
+                vec2(2.0f, 2.0f),
                 vec2(0.0f, 0.0f),
-                vec2(1.0f, 0.0f)
+                vec2(2.0f, 0.0f)
             );
             out vec2 vert;
             void main() {
                 vert = verts[gl_VertexID];
-                gl_Position = vec4(vert - 0.5, 0.0, 1.0);
+                gl_Position = vec4((vert - 0.5), 0.0, 1.0);
             }"#,
             r#"#version 440
             struct CellData{
-                float val;
+                bool alive;
+                float lifetime;
+                float creation;
             };
 
 
             uniform vec2 u_field_size;
+            uniform float u_zoom;
 
             int GetArrayId(ivec2 pos)
             {
@@ -178,11 +161,16 @@ pub fn main() {
                 vec2 temp = vert;
                 temp.x *= u_field_size.x;
                 temp.y *= u_field_size.y;
-
-                ivec2 pixel_coord = ivec2(floor(temp));
+                ivec2 pixel_coord = ivec2(floor(temp / u_zoom));
 
                 CellData data = data[GetArrayId(pixel_coord)];
-                color = vec4(data.val, 1.0, 1.0, 1.0);
+                float lt = max(data.lifetime, 0.0);
+                lt *= lt;
+                if (lt > 0.5) {
+                    color = vec4(mix(vec3(0.8,0.6,lt), vec3(0.3,0.8,0.6), (lt-0.5)*2.0), 1.0);
+                } else {
+                    color = vec4(mix(vec3(0.2,0.1,0.7), vec3(0.8,0.6,0.7), lt*2.0), 1.0);
+                }
             }"#,
         );
 
@@ -217,16 +205,17 @@ pub fn main() {
         }
         // END TEXTURE DRAWING
 
-        //std::thread::sleep_ms(17);
         gl.use_program(Some(compute_program));
-        let loc1 = gl.get_uniform_location(compute_program, "u_field_size");
-        let loc2 = gl.get_uniform_location(tex_program, "u_field_size");
+        let field_size_loc = gl.get_uniform_location(compute_program, "u_field_size");
+        let dt_loc = gl.get_uniform_location(compute_program, "u_dt");
+        let time_loc = gl.get_uniform_location(compute_program, "u_time");
+        let field_size_tex_loc = gl.get_uniform_location(tex_program, "u_field_size");
+        let zoom_loc = gl.get_uniform_location(tex_program, "u_zoom");
 
-        let t1 = std::time::Instant::now();
-
-        println!("t {:?}", t1.elapsed());
-
+        let mut t1 = std::time::Instant::now();
         gl.clear_color(0.95, 0.75, 0.75, 1.0);
+        let mut t = 0.0;
+        let mut zoom = 2.0;
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Wait;
             match event {
@@ -234,40 +223,39 @@ pub fn main() {
                     window.window().request_redraw();
                 }
                 Event::RedrawRequested(_) => {
+                    let dt = t1.elapsed().as_secs_f32();
+                    t += dt;
+                    t1 = std::time::Instant::now();
                     gl.clear(glow::COLOR_BUFFER_BIT);
-                    // DRAWING
+                    // DRAWING AND COMPUTING
                     {
                         gl.use_program(Some(compute_program));
-                        gl.uniform_2_f32(loc1.as_ref(), field_size.0 as f32, field_size.1 as f32);
+                        gl.uniform_2_f32(
+                            field_size_loc.as_ref(),
+                            field_size.0 as f32,
+                            field_size.1 as f32,
+                        );
+                        gl.uniform_1_f32(dt_loc.as_ref(), dt);
+                        gl.uniform_1_f32(time_loc.as_ref(), t);
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(out_data));
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 1, Some(in_data));
                         gl.bind_texture(glow::TEXTURE_2D, Some(tex));
                         gl.bind_image_texture(2, tex, 1, false, 0, glow::WRITE_ONLY, glow::RGBA32F);
-                        println!("E: {:?}", gl.get_error());
 
-                        gl.dispatch_compute(field_size.0 as u32 / 8, field_size.1 as u32 / 8, 1);
+                        gl.dispatch_compute(field_size.0 as u32 / 32, field_size.1 as u32 / 32, 1);
                         std::mem::swap(&mut out_data, &mut in_data);
                         gl.memory_barrier(glow::SHADER_STORAGE_BARRIER_BIT);
 
                         gl.use_program(Some(tex_program));
-                        gl.uniform_2_f32(loc2.as_ref(), field_size.0 as f32, field_size.1 as f32);
+                        gl.uniform_2_f32(
+                            field_size_tex_loc.as_ref(),
+                            field_size.0 as f32,
+                            field_size.1 as f32,
+                        );
+                        gl.uniform_1_f32(zoom_loc.as_ref(), zoom);
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(in_data));
-                        gl.bind_texture(glow::TEXTURE_2D, Some(tex));
                         gl.bind_vertex_array(Some(vertex_array));
                         gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
-
-                        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(out_data));
-                        {
-                            let p = gl.map_buffer_range(
-                                glow::SHADER_STORAGE_BUFFER,
-                                0,
-                                (std::mem::size_of::<CellData>() * field_size.0 * field_size.1) as i32,
-                                glow::MAP_READ_BIT,
-                            ) as *mut CellData;
-                            let slice = { std::slice::from_raw_parts(p, field_size.0 * field_size.1) };
-                            println!("s {:?}", slice[9]);
-                            gl.unmap_buffer(glow::SHADER_STORAGE_BUFFER);
-                        }
                     }
                     window.swap_buffers().unwrap();
                 }
@@ -280,6 +268,15 @@ pub fn main() {
                         gl.delete_buffer(in_data);
                         gl.delete_buffer(out_data);
                         *control_flow = ControlFlow::Exit
+                    }
+                    WindowEvent::KeyboardInput { input, .. } => {
+                        if let Some(keycode) = input.virtual_keycode {
+                            if keycode == glutin::event::VirtualKeyCode::I {
+                                zoom = 20.0f32.min(zoom * 1.1);
+                            } else if keycode == glutin::event::VirtualKeyCode::O {
+                                zoom = 1.5f32.max(zoom * 0.9);
+                            }
+                        }
                     }
                     _ => (),
                 },
