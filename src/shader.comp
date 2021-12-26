@@ -32,6 +32,7 @@ float angle_diff(float a, float b){
 
 float vision = 0.09;
 float close_range = 0.02;
+float wall_range = 0.1;
 
 void main() {
 
@@ -80,11 +81,29 @@ void main() {
 		rotation += rot_diff * 0.1 * u_dt;
 	}
 	self.velocity = vec2(cos(rotation)*speed, sin(rotation)*speed);
+	float dist;
+	dist = abs(1.0-self.position.x);
+	if (self.position.x + wall_range > 1.0) {
+		self.velocity.x += -(abs(self.velocity.x) + 0.03) * u_dt * 60.0 * (1.0-(dist/wall_range));
+	}
+	dist = abs(self.position.x);
+	if (self.position.x - wall_range < 0.0) {
+		self.velocity.x += (abs(self.velocity.x) + 0.03) * u_dt * 60.0 * (1.0-(dist/wall_range));
+	}
+	dist = abs(1.0-self.position.y);
+	if (self.position.y + wall_range > 1.0) {
+		self.velocity.y += -(abs(self.velocity.y) + 0.03) * u_dt * 60.0 * (1.0-(dist/wall_range));
+	}
+	dist = abs(self.position.y);
+	if (self.position.y - wall_range < 0.0) {
+		self.velocity.y += (abs(self.velocity.y) + 0.03) * u_dt * 60.0 * (1.0-(dist/wall_range));
+	}
+	self.velocity = normalize(self.velocity) * speed;
 
 
 
     self.position += self.velocity * u_dt;
-	self.position = fract(self.position);
+    self.position = fract(self.position);
 
     next[gl_GlobalInvocationID.x] = self;
 }
