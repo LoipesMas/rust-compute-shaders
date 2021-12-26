@@ -7,10 +7,8 @@ use rand::prelude::*;
 
 #[derive(Default, Clone, Copy, Debug)]
 struct CellData {
-    alive: u32,
-    lifetime: f32,
-    #[allow(dead_code)]
-    creation: f32,
+    position: [f32; 2],
+    velocity: [f32; 2],
 }
 
 pub fn main() {
@@ -29,14 +27,18 @@ pub fn main() {
 
         let s = 1024;
         let field_size = (s, s);
+        let count = 100;
+
+        let speed = 0.6;
 
         let mut image_data = vec![];
-        image_data.resize_with(field_size.0 * field_size.1, || {
+        image_data.resize_with(count, || {
             let mut c = CellData::default();
-            if random::<f32>() < 0.231 {
-                c.alive = 1;
-                c.lifetime = 1.0;
-            }
+            c.position[0] = random::<f32>();
+            c.position[1] = random::<f32>();
+            let angle = (random::<f32>() - 0.5) * 2.0 * std::f32::consts::PI;
+            c.velocity[0] = angle.cos() * speed;
+            c.velocity[1] = angle.sin() * speed;
             c
         });
 
@@ -55,7 +57,7 @@ pub fn main() {
         gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, None);
 
         let mut image_data_2 = vec![];
-        image_data_2.resize(field_size.0 * field_size.1, CellData::default());
+        image_data_2.resize(count, CellData::default());
 
         let image_data_u8_2: &[u8] = core::slice::from_raw_parts(
             image_data_2.as_ptr() as *const u8,
@@ -72,7 +74,7 @@ pub fn main() {
         gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, None);
 
         let compute_program = gl.create_program().expect("Cannot create program");
-        let shader_source = include_str!("shader.vsh");
+        let shader_source = include_str!("shader.comp");
         let shader = gl.create_shader(glow::COMPUTE_SHADER).unwrap();
         gl.shader_source(shader, shader_source);
         gl.compile_shader(shader);
@@ -87,31 +89,6 @@ pub fn main() {
         gl.detach_shader(compute_program, shader);
         gl.delete_shader(shader);
 
-        // FOR TEXTURE DRAWING
-        let tex = gl.create_texture().unwrap();
-        gl.bind_texture(glow::TEXTURE_2D, Some(tex));
-        let data_ = vec![255u8; field_size.0 * field_size.1 * 4];
-        let slice = { std::slice::from_raw_parts::<u8>(data_.as_ptr(), data_.len()) };
-        gl.tex_storage_2d(
-            glow::TEXTURE_2D,
-            1,
-            glow::RGBA32F,
-            field_size.0 as i32,
-            field_size.1 as i32,
-        );
-        gl.tex_sub_image_2d(
-            glow::TEXTURE_2D,
-            0,
-            0,
-            0,
-            field_size.0 as i32,
-            field_size.1 as i32,
-            glow::RGBA,
-            glow::UNSIGNED_BYTE,
-            PixelUnpackData::Slice(slice),
-        );
-        gl.bind_texture(glow::TEXTURE_2D, None);
-
         let vertex_array = gl
             .create_vertex_array()
             .expect("Cannot create vertex array");
@@ -122,31 +99,25 @@ pub fn main() {
         let (vertex_shader_source, fragment_shader_source) = (
             r#"#version 440
             const vec2 verts[4] = vec2[4](
-                vec2(0.0f, 2.0f),
-                vec2(2.0f, 2.0f),
+                vec2(0.0f, 1.0f),
+                vec2(1.0f, 1.0f),
                 vec2(0.0f, 0.0f),
-                vec2(2.0f, 0.0f)
+                vec2(1.0f, 0.0f)
             );
             out vec2 vert;
             void main() {
                 vert = verts[gl_VertexID];
-                gl_Position = vec4((vert - 0.5), 0.0, 1.0);
+                gl_Position = vec4((vert ), 0.0, 1.0);
             }"#,
             r#"#version 440
             struct CellData{
-                bool alive;
-                float lifetime;
-                float creation;
+                vec2 position;
+                vec2 velocity;
             };
 
 
-            uniform vec2 u_field_size;
+            uniform int u_count;
             uniform float u_zoom;
-
-            int GetArrayId(ivec2 pos)
-            {
-                return pos.x + pos.y * int(u_field_size.x);
-            }
 
             layout(shared, binding = 0) readonly buffer Data
             {
@@ -158,19 +129,17 @@ pub fn main() {
             in vec2 vert;
             out vec4 color;
             void main() {
-                vec2 temp = vert;
-                temp.x *= u_field_size.x;
-                temp.y *= u_field_size.y;
-                ivec2 pixel_coord = ivec2(floor(temp / u_zoom));
-
-                CellData data = data[GetArrayId(pixel_coord)];
-                float lt = max(data.lifetime, 0.0);
-                lt *= lt;
-                if (lt > 0.5) {
-                    color = vec4(mix(vec3(0.8,0.6,lt), vec3(0.3,0.8,0.6), (lt-0.5)*2.0), 1.0);
-                } else {
-                    color = vec4(mix(vec3(0.2,0.1,0.7), vec3(0.8,0.6,0.7), lt*2.0), 1.0);
+                vec2 v = vert;
+                for (int i = 0; i < u_count; i++){
+                    CellData boid = data[i];
+                    vec2 dir = v-boid.position;
+                    if (length(dir) < 0.01){
+                        dir = normalize(dir);
+                        color = vec4(dot(dir,normalize(boid.velocity)),0.4,0.5,1.0);
+                        return;
+                    }
                 }
+                color = vec4(1.0,1.0,1.0,1.0);
             }"#,
         );
 
@@ -206,10 +175,10 @@ pub fn main() {
         // END TEXTURE DRAWING
 
         gl.use_program(Some(compute_program));
-        let field_size_loc = gl.get_uniform_location(compute_program, "u_field_size");
+        let count_loc = gl.get_uniform_location(compute_program, "u_count");
         let dt_loc = gl.get_uniform_location(compute_program, "u_dt");
         let time_loc = gl.get_uniform_location(compute_program, "u_time");
-        let field_size_tex_loc = gl.get_uniform_location(tex_program, "u_field_size");
+        let count_tex_loc = gl.get_uniform_location(tex_program, "u_count");
         let zoom_loc = gl.get_uniform_location(tex_program, "u_zoom");
 
         let mut t1 = std::time::Instant::now();
@@ -230,32 +199,36 @@ pub fn main() {
                     // DRAWING AND COMPUTING
                     {
                         gl.use_program(Some(compute_program));
-                        gl.uniform_2_f32(
-                            field_size_loc.as_ref(),
-                            field_size.0 as f32,
-                            field_size.1 as f32,
-                        );
+                        gl.uniform_1_i32(count_loc.as_ref(), count as i32);
                         gl.uniform_1_f32(dt_loc.as_ref(), dt);
                         gl.uniform_1_f32(time_loc.as_ref(), t);
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(out_data));
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 1, Some(in_data));
-                        gl.bind_texture(glow::TEXTURE_2D, Some(tex));
-                        gl.bind_image_texture(2, tex, 1, false, 0, glow::WRITE_ONLY, glow::RGBA32F);
 
-                        gl.dispatch_compute(field_size.0 as u32 / 32, field_size.1 as u32 / 32, 1);
+                        gl.dispatch_compute(count as u32, 1, 1);
                         std::mem::swap(&mut out_data, &mut in_data);
                         gl.memory_barrier(glow::SHADER_STORAGE_BARRIER_BIT);
 
                         gl.use_program(Some(tex_program));
-                        gl.uniform_2_f32(
-                            field_size_tex_loc.as_ref(),
-                            field_size.0 as f32,
-                            field_size.1 as f32,
-                        );
+                        gl.uniform_1_i32(count_tex_loc.as_ref(), count as i32);
                         gl.uniform_1_f32(zoom_loc.as_ref(), zoom);
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(in_data));
                         gl.bind_vertex_array(Some(vertex_array));
                         gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
+                    }
+                    if false {
+                        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(in_data));
+                        {
+                            let p = gl.map_buffer_range(
+                                glow::SHADER_STORAGE_BUFFER,
+                                0,
+                                (std::mem::size_of::<CellData>() * count) as i32,
+                                glow::MAP_READ_BIT,
+                            ) as *mut CellData;
+                            let slice = { std::slice::from_raw_parts(p, count) };
+                            println!("s {:?}", slice[0]);
+                            gl.unmap_buffer(glow::SHADER_STORAGE_BUFFER);
+                        }
                     }
                     window.swap_buffers().unwrap();
                 }
