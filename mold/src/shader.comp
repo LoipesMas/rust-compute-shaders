@@ -3,7 +3,7 @@ layout(local_size_x = 32) in;
 
 struct CellData{
     vec2 position;
-    vec2 velocity;
+    vec2 angle;
 };
 
 struct TexCellData{
@@ -31,76 +31,6 @@ layout(shared, binding = 2) buffer TexData
     TexCellData tex_data[];
 };
 
-const ivec2 right_verts[15] = ivec2[15](
-	ivec2(1, -2),
-	ivec2(1, -1),
-	ivec2(1,  0),
-	ivec2(1,  1),
-	ivec2(1,  2),
-	ivec2(2, -2),
-	ivec2(2, -1),
-	ivec2(2,  0),
-	ivec2(2,  1),
-	ivec2(2,  2),
-	ivec2(3, -2),
-	ivec2(3, -1),
-	ivec2(3,  0),
-	ivec2(3,  1),
-	ivec2(3,  2)
-);
-
-const ivec2 left_verts[15] = ivec2[15](
-	ivec2(-1, -2),
-	ivec2(-1, -1),
-	ivec2(-1,  0),
-	ivec2(-1,  1),
-	ivec2(-1,  2),
-	ivec2(-2, -2),
-	ivec2(-2, -1),
-	ivec2(-2,  0),
-	ivec2(-2,  1),
-	ivec2(-2,  2),
-	ivec2(-3, -2),
-	ivec2(-3, -1),
-	ivec2(-3,  0),
-	ivec2(-3,  1),
-	ivec2(-3,  2)
-);
-const ivec2 up_verts[15] = ivec2[15](
-	ivec2(-2, 1),
-	ivec2(-1, 1),
-	ivec2( 0, 1),
-	ivec2( 1, 1),
-	ivec2( 2, 1),
-	ivec2(-2, 2),
-	ivec2(-1, 2),
-	ivec2( 0, 2),
-	ivec2( 1, 2),
-	ivec2( 2, 2),
-	ivec2(-2, 3),
-	ivec2(-1, 3),
-	ivec2( 0, 3),
-	ivec2( 1, 3),
-	ivec2( 2, 3)
-);
-const ivec2 down_verts[15] = ivec2[15](
-	ivec2(-2, -1),
-	ivec2(-1, -1),
-	ivec2( 0, -1),
-	ivec2( 1, -1),
-	ivec2( 2, -1),
-	ivec2(-2, -2),
-	ivec2(-1, -2),
-	ivec2( 0, -2),
-	ivec2( 1, -2),
-	ivec2( 2, -2),
-	ivec2(-2, -3),
-	ivec2(-1, -3),
-	ivec2( 0, -3),
-	ivec2( 1, -3),
-	ivec2( 2, -3)
-);
-
 int GetArrayId(ivec2 pos)
 {
     return pos.x + pos.y * int(u_field_size.x);
@@ -108,89 +38,96 @@ int GetArrayId(ivec2 pos)
 
 float rand(float n){return fract(sin(n) * 43758.5453123);}
 
+int sensor_size = 4;
+int sensor_stride = 3;
+int sensor_offset = 30;
+int trail_weight = 10;
+float turnSpeed = 40.0;
+float speed = 300.0;
+
+float sense(CellData agent, float sensorAngleOffset) {
+	float sensorAngle = agent.angle.x + sensorAngleOffset;
+	vec2 sensorDir = vec2(cos(sensorAngle), sin(sensorAngle));
+
+	vec2 sensorPos = (agent.position*u_field_size) + sensorDir * sensor_offset;
+	int sensorCentreX = int(sensorPos.x);
+	int sensorCentreY = int(sensorPos.y);
+
+	float sum = 0;
+
+	for (int offsetX = -sensor_size; offsetX <= sensor_size; offsetX ++) {
+		for (int offsetY = -sensor_size; offsetY <= sensor_size; offsetY ++) {
+			int sampleX = min(u_field_size.x - 1, max(0, sensorCentreX + offsetX * sensor_stride));
+			int sampleY = min(u_field_size.y - 1, max(0, sensorCentreY + offsetY * sensor_stride));
+			sum += tex_data[GetArrayId(ivec2(sampleX,sampleY))].color;
+		}
+	}
+
+	return sum;
+}
+
 void main() {
 
     CellData curr = input_data[gl_GlobalInvocationID.x];
     
 
     CellData self;
-	self.velocity = curr.velocity;
+	self.angle = curr.angle;
 	self.position = curr.position;
+	vec2 pos = self.position * u_field_size;
 
 	ivec2 pixel_cord = ivec2(self.position * u_field_size);
 
+	// Steer based on sensory data
+	float sensorAngleRad = 40 * (3.1415 / 180);
+	float weightForward = sense(self, 0);
+	float weightLeft = sense(self, sensorAngleRad);
+	float weightRight = sense(self, -sensorAngleRad);
 
-	//Check left
-	float left_sum = 0.0;
-		for (int i = 0; i < 15; i++) {
-			ivec2 off = left_verts[i];
-			ivec2 pos = pixel_cord + off;
-			if (pos.x < 0 || pos.x > u_field_size.x || pos.y < 0 || pos.y > u_field_size.y)
-				continue;
-			TexCellData tc = tex_data[GetArrayId(pos)];
-			left_sum += sqrt(tc.color);
-		}
-	//Check right
-	float right_sum = 0.0;
-		for (int i = 0; i < 15; i++) {
-			ivec2 off = right_verts[i];
-			ivec2 pos = pixel_cord + off;
-			if (pos.x < 0 || pos.x > u_field_size.x || pos.y < 0 || pos.y > u_field_size.y)
-				continue;
-			TexCellData tc = tex_data[GetArrayId(pos)];
-			right_sum += sqrt(tc.color);
-		}
-	if (right_sum > left_sum)
-		self.velocity.x = right_sum/7.0;
-	else
-		self.velocity.x = -left_sum/7.0;
-	//Check up
-	float up_sum = 0.0;
-		for (int i = 0; i < 15; i++) {
-			ivec2 off = up_verts[i];
-			ivec2 pos = pixel_cord + off;
-			if (pos.x < 0 || pos.x > u_field_size.x || pos.y < 0 || pos.y > u_field_size.y)
-				continue;
-			TexCellData tc = tex_data[GetArrayId(pos)];
-			up_sum += sqrt(tc.color);
-		}
-	//Check down
-	float down_sum = 0.0;
-	for (int i = 0; i < 15; i++) {
-		ivec2 off = down_verts[i];
-		ivec2 pos = pixel_cord + off;
-		if (pos.x < 0 || pos.x > u_field_size.x || pos.y < 0 || pos.y > u_field_size.y)
-			continue;
-		TexCellData tc = tex_data[GetArrayId(pos)];
-		down_sum += sqrt(tc.color);
+	
+	float randomSteerStrength = 1.0 + (rand(pos.x * rand(pos.y))-0.5) * 0.7;
+
+	// Continue in same direction
+	if (weightForward > weightLeft && weightForward > weightRight) {
+		self.angle += 0;
 	}
-	if (up_sum > down_sum)
-		self.velocity.y = up_sum/7.0;
-	else
-		self.velocity.y = -down_sum/7.0;
+	else if (weightForward < weightLeft && weightForward < weightRight) {
+		self.angle += (randomSteerStrength - 0.5) * 2 * turnSpeed * u_dt;
+	}
+	// Turn right
+	else if (weightRight > weightLeft) {
+		self.angle -= randomSteerStrength * turnSpeed * u_dt;
+	}
+	// Turn left
+	else if (weightLeft > weightRight) {
+		self.angle += randomSteerStrength * turnSpeed * u_dt;
+	}
 
 
-	// Bounce
-	if (self.position.x > 1.0) {
-		self.velocity.x = -0.1;
+	// Update position
+	vec2 direction = vec2(cos(self.angle[0]), sin(self.angle[0]));
+	vec2 newPos = self.position * u_field_size + direction * u_dt * speed;
+
+	
+	// Clamp position to map boundaries, and pick new random move dir if hit boundary
+	if (newPos.x < 0 || newPos.x >= u_field_size.x || newPos.y < 0 || newPos.y >= u_field_size.y) {
+		float randomAngle = rand(self.position.x * gl_GlobalInvocationID.x / self.position.y);
+
+		newPos.x = min(u_field_size.x-1,max(0, newPos.x));
+		newPos.y = min(u_field_size.y-1,max(0, newPos.y));
+		self.angle[0] += randomAngle + 2.89;
 	}
-	if (self.position.x < 0.0) {
-		self.velocity.x = 0.1;
+	else {
+		ivec2 coord = ivec2(newPos);
+		float oldTrail = tex_data[GetArrayId(coord)].color;
+		tex_data[GetArrayId(coord)].color = min(1, oldTrail + trail_weight * u_dt);
 	}
-	if (self.position.y > 1.0) {
-		self.velocity.y = -0.1;
-	}
-	if (self.position.y < 0.0) {
-		self.velocity.y = 0.1;
-	}
-	self.velocity = clamp(self.velocity, -0.1, 0.1);
-    self.position += self.velocity * u_dt;
+	self.position = newPos/u_field_size;
+
 
 	TexCellData tc;
 	tc.color = 1.0;
 
-
-	tex_data[GetArrayId(pixel_cord)] = tc;
 
     next[gl_GlobalInvocationID.x] = self;
 }

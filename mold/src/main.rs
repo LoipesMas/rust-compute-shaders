@@ -8,7 +8,7 @@ use rand::prelude::*;
 #[derive(Default, Clone, Copy, Debug)]
 struct CellData {
     position: [f32; 2],
-    velocity: [f32; 2],
+    angle: [f32; 2],
 }
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -31,20 +31,17 @@ pub fn main() {
             .unwrap();
         let gl = glow::Context::from_loader_function(|s| window.get_proc_address(s) as *const _);
 
-        let s = 1024;
+        let s = 4096;
         let field_size = (s,s);
-        let count = 1024;
-
-        let speed = 0.1;
+        let count = 2usize.pow(17);
 
         let mut image_data = vec![];
         image_data.resize_with(count, || {
             let mut c = CellData::default();
-            c.position[0] = random::<f32>();
-            c.position[1] = random::<f32>();
             let angle = (random::<f32>() - 0.5) * 2.0 * std::f32::consts::PI;
-            c.velocity[0] = angle.cos() * speed;
-            c.velocity[1] = angle.sin() * speed;
+            c.angle[0] = -angle;
+            let dist = random::<f32>() * 0.5;
+            c.position = [angle.cos()*dist+0.5, angle.sin()*dist+0.5];
             c
         });
 
@@ -215,6 +212,9 @@ pub fn main() {
         let field_size_loc = gl.get_uniform_location(compute_program, "u_field_size").unwrap();
         let field_size_tex_loc = gl.get_uniform_location(tex_program, "u_field_size").unwrap();
         let field_size_blur_loc = gl.get_uniform_location(blur_program, "u_field_size").unwrap();
+        let dt_blur_loc = gl.get_uniform_location(blur_program, "u_dt").unwrap();
+
+        let mut speed = 1.0;
 
         let mut t1 = std::time::Instant::now();
         gl.clear_color(0.95, 0.75, 0.75, 1.0);
@@ -225,7 +225,7 @@ pub fn main() {
                     window.window().request_redraw();
                 }
                 Event::RedrawRequested(_) => {
-                    let dt = t1.elapsed().as_secs_f32();
+                    let dt = t1.elapsed().as_secs_f32() * speed;
                     t1 = std::time::Instant::now();
                     gl.clear(glow::COLOR_BUFFER_BIT);
                     // DRAWING AND COMPUTING
@@ -246,6 +246,7 @@ pub fn main() {
 
                         //Bluring
                         gl.use_program(Some(blur_program));
+                        gl.uniform_1_f32(Some(&dt_blur_loc), dt);
                         gl.uniform_2_i32(Some(&field_size_blur_loc), field_size.0 as i32, field_size.1 as i32);
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(tex_data_2));
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 2, Some(tex_data));
@@ -287,6 +288,15 @@ pub fn main() {
                         gl.delete_buffer(in_data);
                         gl.delete_buffer(out_data);
                         *control_flow = ControlFlow::Exit
+                    }
+                    WindowEvent::KeyboardInput { input, .. } => {
+                        if let Some(keycode) = input.virtual_keycode {
+                            if keycode == glutin::event::VirtualKeyCode::I {
+                                speed = 4.0f32.min(speed + 0.1);
+                            } else if keycode == glutin::event::VirtualKeyCode::O {
+                                speed = 0f32.max(speed - 0.1);
+                            }
+                        }
                     }
                     _ => (),
                 },
