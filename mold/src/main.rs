@@ -166,13 +166,16 @@ pub fn main() {
             }
 
             precision mediump float;
+
+            vec3 color_1 = vec3(0.1, 0.1, 0.2);
+            vec3 color_2 = vec3(1.0, 0.6, 0);
             
             in vec2 vert;
             out vec4 color;
             void main() {
 	            ivec2 pixel_cord = ivec2(vert * u_field_size);
                 TexCellData tc = data[GetArrayId(pixel_cord)];
-                color = vec4(vec3(tc.color),1.0);
+                color = vec4(mix(color_1, color_2, tc.color),1.0);
             }"#,
         );
 
