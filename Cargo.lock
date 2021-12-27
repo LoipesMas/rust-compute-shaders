@@ -541,6 +541,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mold"
+version = "0.1.0"
+dependencies = [
+ "glow",
+ "glutin",
+ "rand",
+]
+
+[[package]]
 name = "ndk"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

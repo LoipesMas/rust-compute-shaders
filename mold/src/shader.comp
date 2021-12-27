@@ -1,0 +1,196 @@
+#version 440 
+layout(local_size_x = 32) in;
+
+struct CellData{
+    vec2 position;
+    vec2 velocity;
+};
+
+struct TexCellData{
+    float color;
+};
+
+uniform float u_dt;
+uniform ivec2 u_field_size;
+
+const float PI = 3.1415926535897932384626433832795;
+const float TAU = 2.0*PI;
+
+layout(shared, binding = 0) writeonly buffer OutputData
+{
+    CellData next[];
+};
+
+layout(shared, binding = 1) readonly buffer InputData
+{
+    CellData input_data[];
+};
+
+layout(shared, binding = 2) buffer TexData
+{
+    TexCellData tex_data[];
+};
+
+const ivec2 right_verts[15] = ivec2[15](
+	ivec2(1, -2),
+	ivec2(1, -1),
+	ivec2(1,  0),
+	ivec2(1,  1),
+	ivec2(1,  2),
+	ivec2(2, -2),
+	ivec2(2, -1),
+	ivec2(2,  0),
+	ivec2(2,  1),
+	ivec2(2,  2),
+	ivec2(3, -2),
+	ivec2(3, -1),
+	ivec2(3,  0),
+	ivec2(3,  1),
+	ivec2(3,  2)
+);
+
+const ivec2 left_verts[15] = ivec2[15](
+	ivec2(-1, -2),
+	ivec2(-1, -1),
+	ivec2(-1,  0),
+	ivec2(-1,  1),
+	ivec2(-1,  2),
+	ivec2(-2, -2),
+	ivec2(-2, -1),
+	ivec2(-2,  0),
+	ivec2(-2,  1),
+	ivec2(-2,  2),
+	ivec2(-3, -2),
+	ivec2(-3, -1),
+	ivec2(-3,  0),
+	ivec2(-3,  1),
+	ivec2(-3,  2)
+);
+const ivec2 up_verts[15] = ivec2[15](
+	ivec2(-2, 1),
+	ivec2(-1, 1),
+	ivec2( 0, 1),
+	ivec2( 1, 1),
+	ivec2( 2, 1),
+	ivec2(-2, 2),
+	ivec2(-1, 2),
+	ivec2( 0, 2),
+	ivec2( 1, 2),
+	ivec2( 2, 2),
+	ivec2(-2, 3),
+	ivec2(-1, 3),
+	ivec2( 0, 3),
+	ivec2( 1, 3),
+	ivec2( 2, 3)
+);
+const ivec2 down_verts[15] = ivec2[15](
+	ivec2(-2, -1),
+	ivec2(-1, -1),
+	ivec2( 0, -1),
+	ivec2( 1, -1),
+	ivec2( 2, -1),
+	ivec2(-2, -2),
+	ivec2(-1, -2),
+	ivec2( 0, -2),
+	ivec2( 1, -2),
+	ivec2( 2, -2),
+	ivec2(-2, -3),
+	ivec2(-1, -3),
+	ivec2( 0, -3),
+	ivec2( 1, -3),
+	ivec2( 2, -3)
+);
+
+int GetArrayId(ivec2 pos)
+{
+    return pos.x + pos.y * int(u_field_size.x);
+}
+
+float rand(float n){return fract(sin(n) * 43758.5453123);}
+
+void main() {
+
+    CellData curr = input_data[gl_GlobalInvocationID.x];
+    
+
+    CellData self;
+	self.velocity = curr.velocity;
+	self.position = curr.position;
+
+	ivec2 pixel_cord = ivec2(self.position * u_field_size);
+
+
+	//Check left
+	float left_sum = 0.0;
+		for (int i = 0; i < 15; i++) {
+			ivec2 off = left_verts[i];
+			ivec2 pos = pixel_cord + off;
+			if (pos.x < 0 || pos.x > u_field_size.x || pos.y < 0 || pos.y > u_field_size.y)
+				continue;
+			TexCellData tc = tex_data[GetArrayId(pos)];
+			left_sum += sqrt(tc.color);
+		}
+	//Check right
+	float right_sum = 0.0;
+		for (int i = 0; i < 15; i++) {
+			ivec2 off = right_verts[i];
+			ivec2 pos = pixel_cord + off;
+			if (pos.x < 0 || pos.x > u_field_size.x || pos.y < 0 || pos.y > u_field_size.y)
+				continue;
+			TexCellData tc = tex_data[GetArrayId(pos)];
+			right_sum += sqrt(tc.color);
+		}
+	if (right_sum > left_sum)
+		self.velocity.x = right_sum/7.0;
+	else
+		self.velocity.x = -left_sum/7.0;
+	//Check up
+	float up_sum = 0.0;
+		for (int i = 0; i < 15; i++) {
+			ivec2 off = up_verts[i];
+			ivec2 pos = pixel_cord + off;
+			if (pos.x < 0 || pos.x > u_field_size.x || pos.y < 0 || pos.y > u_field_size.y)
+				continue;
+			TexCellData tc = tex_data[GetArrayId(pos)];
+			up_sum += sqrt(tc.color);
+		}
+	//Check down
+	float down_sum = 0.0;
+	for (int i = 0; i < 15; i++) {
+		ivec2 off = down_verts[i];
+		ivec2 pos = pixel_cord + off;
+		if (pos.x < 0 || pos.x > u_field_size.x || pos.y < 0 || pos.y > u_field_size.y)
+			continue;
+		TexCellData tc = tex_data[GetArrayId(pos)];
+		down_sum += sqrt(tc.color);
+	}
+	if (up_sum > down_sum)
+		self.velocity.y = up_sum/7.0;
+	else
+		self.velocity.y = -down_sum/7.0;
+
+
+	// Bounce
+	if (self.position.x > 1.0) {
+		self.velocity.x = -0.1;
+	}
+	if (self.position.x < 0.0) {
+		self.velocity.x = 0.1;
+	}
+	if (self.position.y > 1.0) {
+		self.velocity.y = -0.1;
+	}
+	if (self.position.y < 0.0) {
+		self.velocity.y = 0.1;
+	}
+	self.velocity = clamp(self.velocity, -0.1, 0.1);
+    self.position += self.velocity * u_dt;
+
+	TexCellData tc;
+	tc.color = 1.0;
+
+
+	tex_data[GetArrayId(pixel_cord)] = tc;
+
+    next[gl_GlobalInvocationID.x] = self;
+}
