@@ -7,6 +7,7 @@ struct TexCellData{
 
 uniform ivec2 u_field_size;
 uniform float u_dt;
+uniform float u_decay_rate = 0.2;
 
 layout(shared, binding = 0) writeonly buffer OutputData
 {
@@ -45,7 +46,7 @@ void main() {
 	}
     TexCellData self;
 	self.color = sum / 10.0;
-	self.color -= 0.2 * u_dt;
+	self.color -= u_decay_rate * u_dt;
 	self.color = max(0.0, self.color);
 
     out_data[GetArrayId(pixel_coord)] = self;

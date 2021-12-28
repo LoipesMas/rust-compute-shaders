@@ -38,27 +38,27 @@ int GetArrayId(ivec2 pos)
 
 float rand(float n){return fract(sin(n) * 43758.5453123);}
 
-int sensor_size = 4;
-int sensor_stride = 3;
-int sensor_offset = 30;
-int trail_weight = 10;
-float turnSpeed = 40.0;
-float speed = 300.0;
+uniform int u_sensor_size = 3;
+uniform int u_sensor_stride = 3;
+uniform int u_sensor_offset = 30;
+uniform int u_trail_weight = 10;
+uniform float u_turn_speed = 40.0;
+uniform float u_speed = 300.0;
 
 float sense(CellData agent, float sensorAngleOffset) {
 	float sensorAngle = agent.angle.x + sensorAngleOffset;
 	vec2 sensorDir = vec2(cos(sensorAngle), sin(sensorAngle));
 
-	vec2 sensorPos = (agent.position*u_field_size) + sensorDir * sensor_offset;
+	vec2 sensorPos = (agent.position*u_field_size) + sensorDir * u_sensor_offset;
 	int sensorCentreX = int(sensorPos.x);
 	int sensorCentreY = int(sensorPos.y);
 
 	float sum = 0;
 
-	for (int offsetX = -sensor_size; offsetX <= sensor_size; offsetX ++) {
-		for (int offsetY = -sensor_size; offsetY <= sensor_size; offsetY ++) {
-			int sampleX = min(u_field_size.x - 1, max(0, sensorCentreX + offsetX * sensor_stride));
-			int sampleY = min(u_field_size.y - 1, max(0, sensorCentreY + offsetY * sensor_stride));
+	for (int offsetX = -u_sensor_size; offsetX <= u_sensor_size; offsetX ++) {
+		for (int offsetY = -u_sensor_size; offsetY <= u_sensor_size; offsetY ++) {
+			int sampleX = min(u_field_size.x - 1, max(0, sensorCentreX + offsetX * u_sensor_stride));
+			int sampleY = min(u_field_size.y - 1, max(0, sensorCentreY + offsetY * u_sensor_stride));
 			sum += tex_data[GetArrayId(ivec2(sampleX,sampleY))].color;
 		}
 	}
@@ -92,21 +92,21 @@ void main() {
 		self.angle += 0;
 	}
 	else if (weightForward < weightLeft && weightForward < weightRight) {
-		self.angle += (randomSteerStrength - 0.5) * 2 * turnSpeed * u_dt;
+		self.angle += (randomSteerStrength - 0.5) * 2 * u_turn_speed * u_dt;
 	}
 	// Turn right
 	else if (weightRight > weightLeft) {
-		self.angle -= randomSteerStrength * turnSpeed * u_dt;
+		self.angle -= randomSteerStrength * u_turn_speed * u_dt;
 	}
 	// Turn left
 	else if (weightLeft > weightRight) {
-		self.angle += randomSteerStrength * turnSpeed * u_dt;
+		self.angle += randomSteerStrength * u_turn_speed * u_dt;
 	}
 
 
 	// Update position
 	vec2 direction = vec2(cos(self.angle[0]), sin(self.angle[0]));
-	vec2 newPos = self.position * u_field_size + direction * u_dt * speed;
+	vec2 newPos = self.position * u_field_size + direction * u_dt * u_speed;
 
 	
 	// Clamp position to map boundaries, and pick new random move dir if hit boundary
@@ -120,7 +120,7 @@ void main() {
 	else {
 		ivec2 coord = ivec2(newPos);
 		float oldTrail = tex_data[GetArrayId(coord)].color;
-		tex_data[GetArrayId(coord)].color = min(1, oldTrail + trail_weight * u_dt);
+		tex_data[GetArrayId(coord)].color = min(1, oldTrail + u_trail_weight * u_dt);
 	}
 	self.position = newPos/u_field_size;
 
