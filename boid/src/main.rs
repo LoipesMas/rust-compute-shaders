@@ -1,10 +1,11 @@
 use glow::*;
+use imgui_winit_support::WinitPlatform;
 
-use glutin::event::{Event, WindowEvent};
-use glutin::event_loop::ControlFlow;
+use glutin::{event::Event, event_loop::ControlFlow, WindowedContext};
 
-use rand::prelude::*;
+use rand::random;
 
+type Window = WindowedContext<glutin::PossiblyCurrent>;
 #[derive(Default, Clone, Copy, Debug)]
 struct CellData {
     position: [f32; 2],
@@ -16,8 +17,9 @@ pub fn main() {
     unsafe {
         let event_loop = glutin::event_loop::EventLoop::new();
         let window_builder = glutin::window::WindowBuilder::new()
-            .with_title("Hello wo!")
-            .with_inner_size(glutin::dpi::LogicalSize::new(1024.0, 768.0));
+            .with_title("Boids")
+            .with_fullscreen(Some(glutin::window::Fullscreen::Borderless(None)))
+            .with_inner_size(glutin::dpi::LogicalSize::new(1920.0, 1080.0));
         let window = glutin::ContextBuilder::new()
             .with_vsync(true)
             .build_windowed(window_builder, &event_loop)
@@ -26,45 +28,20 @@ pub fn main() {
             .unwrap();
         let gl = glow::Context::from_loader_function(|s| window.get_proc_address(s) as *const _);
 
-        let count = 1024;
+        let (mut winit_platform, mut imgui_context) = imgui_init(&window);
 
-        let speed = 0.6;
+        let mut ig_renderer = imgui_glow_renderer::AutoRenderer::initialize(gl, &mut imgui_context)
+            .expect("failed to create renderer");
 
-        let mut image_data = vec![];
-        image_data.resize_with(count, || {
-            let mut c = CellData::default();
-            c.position[0] = random::<f32>();
-            c.position[1] = random::<f32>();
-            let angle = (random::<f32>() - 0.5) * 2.0 * std::f32::consts::PI;
-            c.velocity[0] = angle.cos() * speed;
-            c.velocity[1] = angle.sin() * speed;
-            c.group[0] = (random::<f32>() * 3.0) as i32;
-            c
-        });
+        let gl = ig_renderer.gl_context();
 
-        let image_data_u8: &[u8] = core::slice::from_raw_parts(
-            image_data.as_ptr() as *const u8,
-            image_data.len() * core::mem::size_of::<CellData>(),
-        );
+        let mut count = 1024u32;
+
+        let mut speed = 0.4;
 
         let mut in_data = gl.create_buffer().unwrap();
-        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(in_data));
-        gl.buffer_data_u8_slice(
-            glow::SHADER_STORAGE_BUFFER,
-            image_data_u8,
-            glow::DYNAMIC_COPY,
-        );
-
-        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, None);
-
         let mut out_data = gl.create_buffer().unwrap();
-        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(out_data));
-        gl.buffer_data_u8_slice(
-            glow::SHADER_STORAGE_BUFFER,
-            image_data_u8,
-            glow::DYNAMIC_COPY,
-        );
-        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, None);
+        new_simulation(gl, count, in_data, out_data);
 
         let compute_program = gl.create_program().expect("Cannot create program");
         let shader_source = include_str!("shader.comp");
@@ -111,6 +88,7 @@ pub fn main() {
 
 
             uniform int u_count;
+            uniform float u_size;
 
             layout(shared, binding = 0) readonly buffer Data
             {
@@ -126,7 +104,7 @@ pub fn main() {
                 for (int i = 0; i < u_count; i++){
                     CellData boid = data[i];
                     vec2 dir = v-boid.position;
-                    if (length(dir) < 0.005){
+                    if (length(dir) < u_size*0.5){
                         dir = normalize(dir);
                         color = vec4(dot(dir,normalize(boid.velocity)), float(boid.group.x) / 3.0, 0.5,1.0);
                         return;
@@ -169,23 +147,36 @@ pub fn main() {
 
         gl.use_program(Some(compute_program));
         let count_loc = gl.get_uniform_location(compute_program, "u_count");
+        let speed_loc = gl.get_uniform_location(compute_program, "u_speed");
+        let vision_loc = gl.get_uniform_location(compute_program, "u_vision");
+        let size_loc = gl.get_uniform_location(compute_program, "u_close_range");
         let dt_loc = gl.get_uniform_location(compute_program, "u_dt");
-        let time_loc = gl.get_uniform_location(compute_program, "u_time");
         let count_tex_loc = gl.get_uniform_location(tex_program, "u_count");
+        let size_tex_loc = gl.get_uniform_location(tex_program, "u_size");
 
         let mut t1 = std::time::Instant::now();
         gl.clear_color(0.95, 0.75, 0.75, 1.0);
-        let mut t = 0.0;
+        let mut dt = t1.elapsed().as_secs_f32();
+        let mut new_count = count;
+        let mut size = 0.01;
+        let mut vision = 0.09;
         event_loop.run(move |event, _, control_flow| {
             *control_flow = ControlFlow::Wait;
             match event {
+                Event::NewEvents(_) => {
+                    let dtd = t1.elapsed();
+                    dt = dtd.as_secs_f32();
+                    t1 = std::time::Instant::now();
+                    imgui_context.io_mut().update_delta_time(dtd);
+                }
                 Event::MainEventsCleared => {
+                    winit_platform
+                        .prepare_frame(imgui_context.io_mut(), window.window())
+                        .unwrap();
                     window.window().request_redraw();
                 }
                 Event::RedrawRequested(_) => {
-                    let dt = t1.elapsed().as_secs_f32();
-                    t += dt;
-                    t1 = std::time::Instant::now();
+                    let gl = ig_renderer.gl_context();
                     gl.clear(glow::COLOR_BUFFER_BIT);
                     // DRAWING AND COMPUTING
                     {
@@ -194,52 +185,147 @@ pub fn main() {
                         gl.use_program(Some(compute_program));
                         gl.uniform_1_i32(count_loc.as_ref(), count as i32);
                         gl.uniform_1_f32(dt_loc.as_ref(), dt);
-                        gl.uniform_1_f32(time_loc.as_ref(), t);
+                        gl.uniform_1_f32(speed_loc.as_ref(), speed);
+                        gl.uniform_1_f32(vision_loc.as_ref(), vision);
+                        gl.uniform_1_f32(size_loc.as_ref(), size);
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(out_data));
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 1, Some(in_data));
 
-                        gl.dispatch_compute(count as u32 / 32, 1, 1);
+                        gl.dispatch_compute(count as u32 / 8, 1, 1);
                         std::mem::swap(&mut out_data, &mut in_data);
                         gl.memory_barrier(glow::SHADER_STORAGE_BARRIER_BIT);
 
                         gl.use_program(Some(tex_program));
                         gl.uniform_1_i32(count_tex_loc.as_ref(), count as i32);
+                        gl.uniform_1_f32(size_tex_loc.as_ref(), size);
                         gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(in_data));
                         gl.bind_vertex_array(Some(vertex_array));
                         gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
                     }
-                    // for debugging
-                    if false {
-                        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(in_data));
-                        {
-                            let p = gl.map_buffer_range(
-                                glow::SHADER_STORAGE_BUFFER,
-                                0,
-                                (std::mem::size_of::<CellData>() * count) as i32,
-                                glow::MAP_READ_BIT,
-                            ) as *mut CellData;
-                            let slice = { std::slice::from_raw_parts(p, count) };
-                            println!("s {:?}", &slice[..3]);
-                            gl.unmap_buffer(glow::SHADER_STORAGE_BUFFER);
-                        }
-                    }
+
+                    let mut reset_sim = false;
+                    let mut reset_settings = false;
+                    let ui = imgui_context.frame();
+                    imgui::Window::new("Simulation settings")
+                        .size([480.0, 300.0], imgui::Condition::Always)
+                        .position([1300.0, 100.0], imgui::Condition::Always)
+                        .resizable(false)
+                        .movable(false)
+                        .build(&ui, || {
+                            imgui::Slider::new("Speed", 0.01, 1.0)
+                                .range(0.01, 1.0)
+                                .build(&ui, &mut speed);
+                            imgui::Slider::new("Vision range", 0.00, 0.2)
+                                .range(0.00, 0.2)
+                                .build(&ui, &mut vision);
+                            imgui::Slider::new("Size", 0.001, 0.015)
+                                .range(0.001, 0.015)
+                                .build(&ui, &mut size);
+
+                            ui.separator();
+                            ui.text("These settings require simulation reset:");
+                            imgui::Slider::new("Agent count", 8, 1024)
+                                .range(8, 1024)
+                                .build(&ui, &mut new_count);
+                            new_count -= new_count % 8; // Snap to multiple of 32
+                            ui.separator();
+
+                            reset_sim = ui.button("Reset simulation");
+                            ui.same_line();
+                            reset_settings = ui.button("Reset settings");
+                        });
+
+                    winit_platform.prepare_render(&ui, window.window());
+                    let draw_data = ui.render();
+
+                    // This is the only extra render step to add
+                    ig_renderer
+                        .render(draw_data)
+                        .expect("error rendering imgui");
                     window.swap_buffers().unwrap();
+
+                    // Reset simulation
+                    if reset_sim {
+                        count = new_count;
+                        new_simulation(
+                            ig_renderer.gl_context(),
+                            count,
+                            in_data,
+                            out_data,
+                        );
+                    }
+                    // Reset settings
+                    if reset_settings {
+                        speed = 0.6;
+                        count = 1024;
+                        new_count = count;
+                    }
                 }
-                Event::WindowEvent { ref event, .. } => match event {
-                    WindowEvent::Resized(physical_size) => {
-                        window.resize(*physical_size);
-                    }
-                    WindowEvent::CloseRequested => {
-                        gl.delete_program(compute_program);
-                        gl.delete_program(tex_program);
-                        gl.delete_buffer(in_data);
-                        gl.delete_buffer(out_data);
-                        *control_flow = ControlFlow::Exit
-                    }
-                    _ => (),
+                glutin::event::Event::WindowEvent {
+                    event: glutin::event::WindowEvent::CloseRequested,
+                    ..
+                } => {
+                    *control_flow = glutin::event_loop::ControlFlow::Exit;
                 },
-                _ => (),
+                event => {
+                    winit_platform.handle_event(imgui_context.io_mut(), window.window(), &event);
+                }
             }
         });
     }
+}
+
+
+unsafe fn new_simulation(gl: &Context, count: u32, in_data: Buffer, out_data: Buffer) {
+        let mut agent_data = vec![];
+        agent_data.resize_with(count as usize, || {
+            let mut c = CellData::default();
+            c.position[0] = random::<f32>();
+            c.position[1] = random::<f32>();
+            let angle = (random::<f32>() - 0.5) * 2.0 * std::f32::consts::PI;
+            c.velocity[0] = angle.cos();
+            c.velocity[1] = angle.sin();
+            c.group[0] = (random::<f32>() * 3.0) as i32;
+            c
+        });
+
+        let agent_data_u8: &[u8] = core::slice::from_raw_parts(
+            agent_data.as_ptr() as *const u8,
+            agent_data.len() * core::mem::size_of::<CellData>(),
+        );
+        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(in_data));
+        gl.buffer_data_u8_slice(
+            glow::SHADER_STORAGE_BUFFER,
+            agent_data_u8,
+            glow::DYNAMIC_COPY,
+        );
+        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(out_data));
+        gl.buffer_data_u8_slice(
+            glow::SHADER_STORAGE_BUFFER,
+            agent_data_u8,
+            glow::DYNAMIC_COPY,
+        );
+
+
+}
+
+
+fn imgui_init(window: &Window) -> (WinitPlatform, imgui::Context) {
+    let mut imgui_context = imgui::Context::create();
+    imgui_context.set_ini_filename(None);
+
+    let mut winit_platform = WinitPlatform::init(&mut imgui_context);
+    winit_platform.attach_window(
+        imgui_context.io_mut(),
+        window.window(),
+        imgui_winit_support::HiDpiMode::Rounded,
+    );
+
+    imgui_context
+        .fonts()
+        .add_font(&[imgui::FontSource::DefaultFontData { config: None }]);
+
+    imgui_context.io_mut().font_global_scale = (1.0 / winit_platform.hidpi_factor()) as f32;
+
+    (winit_platform, imgui_context)
 }

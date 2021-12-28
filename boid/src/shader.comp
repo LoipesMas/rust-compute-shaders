@@ -1,5 +1,5 @@
 #version 440 
-layout(local_size_x = 32) in;
+layout(local_size_x = 8) in;
 
 struct CellData{
     vec2 position;
@@ -9,7 +9,6 @@ struct CellData{
 
 uniform int u_count;
 uniform float u_dt;
-uniform float u_time;
 
 const float PI = 3.1415926535897932384626433832795;
 const float TAU = 2.0*PI;
@@ -30,14 +29,17 @@ float angle_diff(float a, float b){
 	return mod(2.0*diff, TAU) - diff;
 }
 
-float vision = 0.09;
-float close_range = 0.02;
-float wall_range = 0.1;
+uniform float u_speed = 0.4;
+uniform float u_vision = 0.09;
+uniform float u_size = 0.02;
+float u_wall_range = 0.1;
 
 void main() {
 
     CellData curr = input_data[gl_GlobalInvocationID.x];
     
+	// Please let this pass
+	float u_close_range = u_size * 2.0;
 
     CellData self;
 	self.velocity = curr.velocity;
@@ -47,8 +49,6 @@ void main() {
 	float rotation = atan(self.velocity.y, self.velocity.x);
 	vec2 norm_vel = normalize(self.velocity);
 
-	float speed = 0.4;
-
 	for (int i = 0; i < u_count; i++){
 		if (gl_GlobalInvocationID.x == i)
 			continue;
@@ -57,7 +57,7 @@ void main() {
 		vec2 dir = other.position-self.position;
 
 		float dist = length(dir);
-		if (dist > vision)
+		if (dist > u_vision)
 			continue;
 		
 		float dir_rot = atan(dir.y, dir.x);
@@ -65,40 +65,41 @@ void main() {
 		if (abs(rot_diff) > PI )
 			continue;
 		if (self.group != other.group) {
-			if (dist < close_range * 2.0)
-				rot_diff *= -30.0 * (2.0-(dist/close_range));
+			if (dist < u_close_range * 2.0)
+				rot_diff *= -30.0 * (2.0-(dist/u_close_range));
 			else
 				rot_diff *= 0;
 		}
 		else {
-			if (dist < close_range) {
-				rot_diff *= -20.0 * (2.0-(dist/close_range));
-				if (dist < 0.02)
-					self.position -= normalize(dir) * (0.02 - dist) * u_dt;
+			if (dist < u_close_range) {
+				rot_diff *= -20.0 * (2.0-(dist/u_close_range));
+				if (dist < u_close_range)
+					self.position -= normalize(dir) * (u_close_range - dist) * u_dt * 3.0;
+		;
 			}
 			rotation = mix(rotation, atan(other.velocity.y, other.velocity.x), u_dt);
 		}
 		rotation += rot_diff * 0.1 * u_dt;
 	}
-	self.velocity = vec2(cos(rotation)*speed, sin(rotation)*speed);
+	self.velocity = vec2(cos(rotation)*u_speed, sin(rotation)*u_speed);
 	float dist;
 	dist = abs(1.0-self.position.x);
-	if (self.position.x + wall_range > 1.0) {
-		self.velocity.x += -(abs(self.velocity.x) + 0.03) * u_dt * 60.0 * (1.0-(dist/wall_range));
+	if (self.position.x + u_wall_range > 1.0) {
+		self.velocity.x += -(abs(self.velocity.x) + 0.03) * u_dt * 60.0 * (1.0-(dist/u_wall_range));
 	}
 	dist = abs(self.position.x);
-	if (self.position.x - wall_range < 0.0) {
-		self.velocity.x += (abs(self.velocity.x) + 0.03) * u_dt * 60.0 * (1.0-(dist/wall_range));
+	if (self.position.x - u_wall_range < 0.0) {
+		self.velocity.x += (abs(self.velocity.x) + 0.03) * u_dt * 60.0 * (1.0-(dist/u_wall_range));
 	}
 	dist = abs(1.0-self.position.y);
-	if (self.position.y + wall_range > 1.0) {
-		self.velocity.y += -(abs(self.velocity.y) + 0.03) * u_dt * 60.0 * (1.0-(dist/wall_range));
+	if (self.position.y + u_wall_range > 1.0) {
+		self.velocity.y += -(abs(self.velocity.y) + 0.03) * u_dt * 60.0 * (1.0-(dist/u_wall_range));
 	}
 	dist = abs(self.position.y);
-	if (self.position.y - wall_range < 0.0) {
-		self.velocity.y += (abs(self.velocity.y) + 0.03) * u_dt * 60.0 * (1.0-(dist/wall_range));
+	if (self.position.y - u_wall_range < 0.0) {
+		self.velocity.y += (abs(self.velocity.y) + 0.03) * u_dt * 60.0 * (1.0-(dist/u_wall_range));
 	}
-	self.velocity = normalize(self.velocity) * speed;
+	self.velocity = normalize(self.velocity) * u_speed;
 
 
 
