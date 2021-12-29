@@ -19,6 +19,7 @@ https://user-images.githubusercontent.com/46327403/147675185-8cbfe4c9-485d-410a-
 Mold simulation, inspired by [this video](https://www.youtube.com/watch?v=X-iSQQgOd1A), which was based on [this paper](https://uwe-repository.worktribe.com/output/980579).  
 Can handle a million of agents (depending on texture size and sensor size).  
 `cargo run --bin mold --release`
+![ksnip_20211228-174219](https://user-images.githubusercontent.com/46327403/147675498-75699eab-236b-42f4-b2c2-6347585650f2.png)
 
 https://user-images.githubusercontent.com/46327403/147675343-94d6823d-75d7-47a0-8eda-513746fdf7fc.mp4
 
