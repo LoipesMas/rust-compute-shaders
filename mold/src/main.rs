@@ -215,6 +215,7 @@ pub fn main() {
         let mut sensor_offset = 30;
         let mut trail_weight = 10;
         let mut decay_rate = 0.2;
+        let mut blur_passes = 1;
 
         let mut color_1 = [0.1, 0.1, 0.2];
         let mut color_2 = [0.7, 0.3, 0.15];
@@ -275,11 +276,14 @@ pub fn main() {
                             tex_size as i32,
                             tex_size as i32,
                         );
-                        gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(tex_data_2));
-                        gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 2, Some(tex_data));
-                        gl.dispatch_compute(tex_size as u32 / 8, tex_size as u32 / 8, 1);
-                        std::mem::swap(&mut tex_data, &mut tex_data_2);
-                        gl.memory_barrier(glow::SHADER_STORAGE_BARRIER_BIT);
+                        for _ in 0..blur_passes {
+                            gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 0, Some(tex_data_2));
+                            gl.bind_buffer_base(glow::SHADER_STORAGE_BUFFER, 2, Some(tex_data));
+                            gl.dispatch_compute(tex_size as u32 / 8, tex_size as u32 / 8, 1);
+                            std::mem::swap(&mut tex_data, &mut tex_data_2);
+                            gl.memory_barrier(glow::SHADER_STORAGE_BARRIER_BIT);
+                            gl.uniform_1_f32(Some(&decay_rate_blur_loc), 0.0);
+                        }
 
                         // Drawing
                         gl.use_program(Some(tex_program));
@@ -322,6 +326,8 @@ pub fn main() {
                             imgui::Slider::new("Trail weight", 0, 50).build(&ui, &mut trail_weight);
 
                             imgui::Slider::new("Decay rate", 0.0, 3.0).build(&ui, &mut decay_rate);
+
+                            imgui::Slider::new("Blur passes", 0, 5).build(&ui, &mut blur_passes);
 
                             ui.separator();
                             ui.text("These settings require simulation reset:");
@@ -376,6 +382,7 @@ pub fn main() {
                         sensor_offset = 30;
                         trail_weight = 10;
                         decay_rate = 0.2;
+                        blur_passes = 1;
                         tex_size = 4096;
                         new_tex_size = tex_size;
                         count = 2u32.pow(17);
