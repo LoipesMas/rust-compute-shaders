@@ -247,12 +247,7 @@ pub fn main() {
                     // Reset simulation
                     if reset_sim {
                         count = new_count;
-                        new_simulation(
-                            ig_renderer.gl_context(),
-                            count,
-                            in_data,
-                            out_data,
-                        );
+                        new_simulation(ig_renderer.gl_context(), count, in_data, out_data);
                     }
                     // Reset settings
                     if reset_settings {
@@ -266,7 +261,7 @@ pub fn main() {
                     ..
                 } => {
                     *control_flow = glutin::event_loop::ControlFlow::Exit;
-                },
+                }
                 event => {
                     winit_platform.handle_event(imgui_context.io_mut(), window.window(), &event);
                 }
@@ -275,40 +270,36 @@ pub fn main() {
     }
 }
 
-
 unsafe fn new_simulation(gl: &Context, count: u32, in_data: Buffer, out_data: Buffer) {
-        let mut agent_data = vec![];
-        agent_data.resize_with(count as usize, || {
-            let mut c = CellData::default();
-            c.position[0] = random::<f32>();
-            c.position[1] = random::<f32>();
-            let angle = (random::<f32>() - 0.5) * 2.0 * std::f32::consts::PI;
-            c.velocity[0] = angle.cos();
-            c.velocity[1] = angle.sin();
-            c.group[0] = (random::<f32>() * 3.0) as i32;
-            c
-        });
+    let mut agent_data = vec![];
+    agent_data.resize_with(count as usize, || {
+        let mut c = CellData::default();
+        c.position[0] = random::<f32>();
+        c.position[1] = random::<f32>();
+        let angle = (random::<f32>() - 0.5) * 2.0 * std::f32::consts::PI;
+        c.velocity[0] = angle.cos();
+        c.velocity[1] = angle.sin();
+        c.group[0] = (random::<f32>() * 3.0) as i32;
+        c
+    });
 
-        let agent_data_u8: &[u8] = core::slice::from_raw_parts(
-            agent_data.as_ptr() as *const u8,
-            agent_data.len() * core::mem::size_of::<CellData>(),
-        );
-        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(in_data));
-        gl.buffer_data_u8_slice(
-            glow::SHADER_STORAGE_BUFFER,
-            agent_data_u8,
-            glow::DYNAMIC_COPY,
-        );
-        gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(out_data));
-        gl.buffer_data_u8_slice(
-            glow::SHADER_STORAGE_BUFFER,
-            agent_data_u8,
-            glow::DYNAMIC_COPY,
-        );
-
-
+    let agent_data_u8: &[u8] = core::slice::from_raw_parts(
+        agent_data.as_ptr() as *const u8,
+        agent_data.len() * core::mem::size_of::<CellData>(),
+    );
+    gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(in_data));
+    gl.buffer_data_u8_slice(
+        glow::SHADER_STORAGE_BUFFER,
+        agent_data_u8,
+        glow::DYNAMIC_COPY,
+    );
+    gl.bind_buffer(glow::SHADER_STORAGE_BUFFER, Some(out_data));
+    gl.buffer_data_u8_slice(
+        glow::SHADER_STORAGE_BUFFER,
+        agent_data_u8,
+        glow::DYNAMIC_COPY,
+    );
 }
-
 
 fn imgui_init(window: &Window) -> (WinitPlatform, imgui::Context) {
     let mut imgui_context = imgui::Context::create();
