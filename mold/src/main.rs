@@ -124,15 +124,20 @@ pub fn main() {
 
             precision mediump float;
 
-            vec3 color_1 = vec3(0.1, 0.1, 0.2);
-            vec3 color_2 = vec3(1.0, 0.6, 0);
+            uniform vec3 color_1 = vec3(0.1, 0.1, 0.2);
+            uniform vec3 color_2 = vec3(1.0, 0.6, 0);
+            uniform vec3 color_3 = vec3(1.0, 0.6, 0);
+            uniform float color_step = 0.5;
             
             in vec2 vert;
             out vec4 color;
             void main() {
 	            ivec2 pixel_cord = ivec2(vert * u_field_size);
                 TexCellData tc = data[GetArrayId(pixel_cord)];
-                color = vec4(mix(color_1, color_2, tc.color),1.0);
+                if (tc.color > color_step)
+                    color = vec4(mix(color_2, color_3, (tc.color-color_step)/(1.0-color_step)),tc.color);
+                else
+                    color = vec4(mix(color_1, color_2, tc.color/color_step),tc.color);
             }"#,
         );
 
@@ -191,6 +196,10 @@ pub fn main() {
         let field_size_tex_loc = gl
             .get_uniform_location(tex_program, "u_field_size")
             .unwrap();
+        let color_1_tex_loc = gl.get_uniform_location(tex_program, "color_1").unwrap();
+        let color_2_tex_loc = gl.get_uniform_location(tex_program, "color_2").unwrap();
+        let color_3_tex_loc = gl.get_uniform_location(tex_program, "color_3").unwrap();
+        let color_step_tex_loc = gl.get_uniform_location(tex_program, "color_step").unwrap();
         let field_size_blur_loc = gl
             .get_uniform_location(blur_program, "u_field_size")
             .unwrap();
@@ -206,6 +215,11 @@ pub fn main() {
         let mut sensor_offset = 30;
         let mut trail_weight = 10;
         let mut decay_rate = 0.2;
+
+        let mut color_1 = [0.1, 0.1, 0.2];
+        let mut color_2 = [0.7, 0.3, 0.15];
+        let mut color_3 = [1.0, 0.6, 0.0];
+        let mut color_step = 0.5;
 
         let mut new_tex_size = tex_size;
         let mut new_count = count;
@@ -269,6 +283,10 @@ pub fn main() {
 
                         // Drawing
                         gl.use_program(Some(tex_program));
+                        gl.uniform_3_f32_slice(Some(&color_1_tex_loc), &color_1);
+                        gl.uniform_3_f32_slice(Some(&color_2_tex_loc), &color_2);
+                        gl.uniform_3_f32_slice(Some(&color_3_tex_loc), &color_3);
+                        gl.uniform_1_f32(Some(&color_step_tex_loc), color_step);
                         gl.uniform_2_i32(
                             Some(&field_size_tex_loc),
                             tex_size as i32,
@@ -283,47 +301,34 @@ pub fn main() {
                     let mut reset_settings = false;
                     let ui = imgui_context.frame();
                     imgui::Window::new("Simulation settings")
-                        .size([480.0, 300.0], imgui::Condition::Always)
+                        .size([480.0, 380.0], imgui::Condition::Always)
                         .position([1300.0, 100.0], imgui::Condition::Always)
                         .resizable(false)
                         .movable(false)
                         .build(&ui, || {
-                            imgui::Slider::new("Speed", 0.0, 600.0)
-                                .range(0.0, 600.0)
-                                .build(&ui, &mut speed);
+                            imgui::Slider::new("Speed", 0.0, 600.0).build(&ui, &mut speed);
 
                             imgui::Slider::new("Turn speed", 0.0, 100.0)
-                                .range(0.0, 100.0)
                                 .build(&ui, &mut turn_speed);
 
-                            imgui::Slider::new("Sensor size", 0, 4)
-                                .range(0, 4)
-                                .build(&ui, &mut sensor_size);
+                            imgui::Slider::new("Sensor size", 0, 4).build(&ui, &mut sensor_size);
 
                             imgui::Slider::new("Sensor stride", 0, 4)
-                                .range(0, 4)
                                 .build(&ui, &mut sensor_stride);
 
                             imgui::Slider::new("Sensor offset", 0, 50)
-                                .range(0, 50)
                                 .build(&ui, &mut sensor_offset);
 
-                            imgui::Slider::new("Trail weight", 0, 50)
-                                .range(0, 50)
-                                .build(&ui, &mut trail_weight);
+                            imgui::Slider::new("Trail weight", 0, 50).build(&ui, &mut trail_weight);
 
-                            imgui::Slider::new("Decay rate", 0.0, 3.0)
-                                .range(0.0, 3.0)
-                                .build(&ui, &mut decay_rate);
+                            imgui::Slider::new("Decay rate", 0.0, 3.0).build(&ui, &mut decay_rate);
 
                             ui.separator();
                             ui.text("These settings require simulation reset:");
                             imgui::Slider::new("Agent count", 32, 262144)
-                                .range(32, 262144)
                                 .build(&ui, &mut new_count);
                             new_count -= new_count % 32; // Snap to multiple of 32
                             imgui::Slider::new("Texture size", 8, 4096)
-                                .range(8, 4096)
                                 .build(&ui, &mut new_tex_size);
                             new_tex_size -= new_tex_size % 8; // Snap to multiple of 8
                             ui.separator();
@@ -331,6 +336,12 @@ pub fn main() {
                             reset_sim = ui.button("Reset simulation");
                             ui.same_line();
                             reset_settings = ui.button("Reset settings");
+
+                            imgui::ColorEdit::new("Background color", &mut color_1).build(&ui);
+                            imgui::ColorEdit::new("Color 1", &mut color_2).build(&ui);
+                            imgui::ColorEdit::new("Color 2", &mut color_3).build(&ui);
+                            imgui::Slider::new("Color step", 0.001, 1.0)
+                                .build(&ui, &mut color_step);
                         });
 
                     winit_platform.prepare_render(&ui, window.window());
